@@ -1,301 +1,128 @@
 import streamlit as st
-from nobet_engine import run_schedule
-import datetime
 import pandas as pd
-import base64
-from pathlib import Path
+import plotly.express as px
 
-try:
-    import plotly.express as px
-except Exception:
-    px = None
+from nobet_engine_104_eczane import run_schedule, create_groups, normalize_name
 
 
-# ==============================
+# =========================================================
 # SAYFA AYARI
-# ==============================
+# =========================================================
 
 st.set_page_config(
-    page_title="AYÇA | Eczane Nöbet Planlayıcı",
+    page_title="Eczane Nöbet Planlayıcı",
     page_icon="💊",
     layout="wide",
 )
 
 
-# ==============================
-# YARDIMCI FONKSİYONLAR
-# ==============================
-
-def get_base64_image(image_path: str):
-    path = Path(image_path)
-    if not path.exists():
-        return None
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-
-def read_excel_safely(uploaded_file):
-    uploaded_file.seek(0)
-    return pd.ExcelFile(uploaded_file)
-
-
-def find_main_sheet(sheet_names):
-    for s in sheet_names:
-        if s.strip().upper() != "GECMIS_BAYRAM":
-            return s
-    return None
-
-
-def read_generated_excel(file_bytes):
-    try:
-        return pd.ExcelFile(file_bytes)
-    except Exception:
-        return None
-
-
-def create_metric_card(title, value, note=""):
-    st.markdown(
-        f"""
-        <div class="metric-card">
-            <div class="metric-title">{title}</div>
-            <div class="metric-value">{value}</div>
-            <div class="metric-note">{note}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-logo_base64 = get_base64_image("logo.png")
-
-
-# ==============================
-# CSS / TASARIM
-# ==============================
+# =========================================================
+# CSS TASARIM
+# =========================================================
 
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
+    .main {
+        background-color: #f7f9fc;
     }
 
-    .stApp {
-        background:
-            radial-gradient(circle at top left, rgba(14,165,233,0.14), transparent 30%),
-            radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 28%),
-            linear-gradient(180deg, #f6f8fb 0%, #eef3f9 100%);
-    }
-
-    .block-container {
-        padding-top: 1.4rem;
-        padding-bottom: 2rem;
-        max-width: 1280px;
-    }
-
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border-right: 1px solid rgba(15,23,42,0.08);
-    }
-
-    .sidebar-logo-box {
-        background: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 16px;
-        margin-bottom: 18px;
-        text-align: center;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
-    }
-
-    .sidebar-logo-box img {
-        max-width: 180px;
-        width: 100%;
-        height: auto;
-    }
-
-    .hero-card {
-        background: linear-gradient(135deg, rgba(15,23,42,0.96), rgba(14,165,233,0.88));
-        border: 1px solid rgba(255,255,255,0.16);
-        border-radius: 28px;
-        padding: 30px 34px;
-        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
-        margin-bottom: 22px;
+    .hero-box {
+        background: linear-gradient(135deg, #123c69, #1f6feb);
+        padding: 32px;
+        border-radius: 24px;
         color: white;
-        overflow: hidden;
-        position: relative;
-    }
-
-    .hero-card:after {
-        content: "";
-        position: absolute;
-        right: -80px;
-        top: -80px;
-        width: 240px;
-        height: 240px;
-        background: rgba(255,255,255,0.12);
-        border-radius: 999px;
-    }
-
-    .hero-grid {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 28px;
-        flex-wrap: wrap;
-    }
-
-    .hero-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        background: rgba(255,255,255,0.14);
-        color: white;
-        font-size: 0.86rem;
-        font-weight: 800;
-        padding: 9px 14px;
-        border-radius: 999px;
-        margin-bottom: 14px;
-        border: 1px solid rgba(255,255,255,0.18);
+        margin-bottom: 24px;
+        box-shadow: 0 12px 32px rgba(18, 60, 105, 0.18);
     }
 
     .hero-title {
-        font-size: 2.25rem;
-        font-weight: 850;
-        margin: 0 0 8px 0;
-        letter-spacing: -0.035em;
+        font-size: 34px;
+        font-weight: 800;
+        margin-bottom: 8px;
     }
 
-    .hero-sub {
-        font-size: 1rem;
-        color: rgba(255,255,255,0.88);
-        margin: 0;
-        line-height: 1.65;
-        max-width: 720px;
-    }
-
-    .hero-logo {
-        background: rgba(255,255,255,0.94);
-        border-radius: 24px;
-        padding: 16px 20px;
-        min-width: 230px;
-        text-align: center;
-        box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
-    }
-
-    .hero-logo img {
-        max-width: 230px;
-        width: 100%;
-        height: auto;
+    .hero-subtitle {
+        font-size: 17px;
+        opacity: 0.92;
+        max-width: 900px;
     }
 
     .metric-card {
-        background: rgba(255,255,255,0.94);
-        border: 1px solid rgba(15, 23, 42, 0.07);
-        border-radius: 22px;
-        padding: 20px 20px;
-        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
-        min-height: 120px;
+        background: white;
+        border-radius: 20px;
+        padding: 22px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
+        border: 1px solid #e8eef7;
     }
 
-    .metric-title {
+    .metric-label {
+        font-size: 14px;
         color: #64748b;
-        font-size: 0.92rem;
-        font-weight: 700;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
     }
 
     .metric-value {
-        color: #0f172a;
-        font-size: 1.95rem;
-        font-weight: 850;
-        letter-spacing: -0.02em;
-    }
-
-    .metric-note {
-        color: #64748b;
-        font-size: 0.84rem;
-        margin-top: 4px;
-    }
-
-    .section-card {
-        background: rgba(255,255,255,0.94);
-        border: 1px solid rgba(15, 23, 42, 0.07);
-        border-radius: 24px;
-        padding: 24px;
-        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.065);
-        margin-bottom: 20px;
+        font-size: 28px;
+        font-weight: 800;
+        color: #123c69;
     }
 
     .section-title {
-        font-size: 1.18rem;
-        font-weight: 850;
+        font-size: 22px;
+        font-weight: 800;
         color: #0f172a;
-        margin-bottom: 8px;
+        margin-top: 18px;
+        margin-bottom: 12px;
     }
 
-    .section-text {
-        color: #475569;
-        font-size: 0.96rem;
-        line-height: 1.6;
-        margin-bottom: 14px;
-    }
-
-    .mini-info {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 14px 16px;
-        color: #334155;
-        font-size: 0.93rem;
-        line-height: 1.55;
-    }
-
-    .success-card {
-        background: linear-gradient(135deg, rgba(16,185,129,0.14), rgba(14,165,233,0.10));
-        border: 1px solid rgba(16,185,129,0.28);
-        border-radius: 22px;
-        padding: 20px;
-        color: #064e3b;
-        font-weight: 750;
-        margin-bottom: 16px;
-    }
-
-    div[data-testid="stFileUploader"] {
+    .info-card {
         background: white;
-        border: 1px dashed #94a3b8;
         border-radius: 18px;
-        padding: 12px;
+        padding: 18px;
+        border: 1px solid #e8eef7;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
     }
 
-    div.stButton > button {
+    .soft-warning {
+        background: #fff7ed;
+        color: #9a3412;
+        border: 1px solid #fed7aa;
+        padding: 14px 16px;
         border-radius: 16px;
-        font-weight: 850;
-        border: none;
-        background: linear-gradient(90deg, #0f172a 0%, #0ea5e9 100%);
-        color: white;
-        padding: 0.78rem 1rem;
-        box-shadow: 0 10px 24px rgba(14, 165, 233, 0.25);
+        font-weight: 600;
     }
 
-    div.stDownloadButton > button {
+    .soft-success {
+        background: #ecfdf5;
+        color: #065f46;
+        border: 1px solid #a7f3d0;
+        padding: 14px 16px;
         border-radius: 16px;
-        font-weight: 850;
-        border: none;
-        background: linear-gradient(90deg, #0f172a 0%, #10b981 100%);
-        color: white;
-        padding: 0.78rem 1rem;
-        box-shadow: 0 10px 24px rgba(16, 185, 129, 0.22);
-        width: 100%;
+        font-weight: 600;
     }
 
-    div[data-testid="stDataFrame"] {
-        border-radius: 18px;
-        overflow: hidden;
+    div[data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e8eef7;
+    }
+
+    .stButton button {
+        border-radius: 14px;
+        background-color: #123c69;
+        color: white;
+        border: none;
+        padding: 10px 18px;
+        font-weight: 700;
+    }
+
+    .stDownloadButton button {
+        border-radius: 14px;
+        background-color: #123c69;
+        color: white;
+        border: none;
+        padding: 10px 18px;
+        font-weight: 700;
     }
     </style>
     """,
@@ -303,85 +130,92 @@ st.markdown(
 )
 
 
-# ==============================
-# SIDEBAR
-# ==============================
+# =========================================================
+# YARDIMCI FONKSİYONLAR
+# =========================================================
 
-with st.sidebar:
-    if logo_base64:
-        st.markdown(
-            f"""
-            <div class="sidebar-logo-box">
-                <img src="data:image/png;base64,{logo_base64}" alt="AYÇA Logo">
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("## 📅 Plan Parametreleri")
-
-    yil = st.number_input(
-        "Yıl",
-        min_value=2025,
-        max_value=2035,
-        value=datetime.datetime.now().year,
-        step=1,
-    )
-
-    ay = st.number_input(
-        "Başlangıç Ayı",
-        min_value=1,
-        max_value=12,
-        value=1,
-        step=1,
-    )
-
-    kac_ay = st.number_input(
-        "Kaç Ay Planlansın",
-        min_value=1,
-        max_value=24,
-        value=3,
-        step=1,
-    )
-
-    st.markdown(
-        """
-        <div class="mini-info">
-            Planlama motoru; geçmiş yük, hafta sonu dengesi, bayram geçmişi, arefe ve grup rotasyonunu birlikte değerlendirir.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.divider()
-    planla = st.button("🚀 Plan Oluştur", use_container_width=True)
+@st.cache_data(show_spinner=False)
+def read_excel_file(uploaded_file):
+    return pd.read_excel(uploaded_file)
 
 
-# ==============================
-# HERO
-# ==============================
-
-logo_html = ""
-if logo_base64:
-    logo_html = f"""
-    <div class="hero-logo">
-        <img src="data:image/png;base64,{logo_base64}" alt="AYÇA Logo">
-    </div>
+def create_empty_history_df():
     """
+    Geçmiş Excel yüklenmezse motor kodundaki tüm eczaneleri sıfır geçmişle başlatır.
+    Bu sayede plan tamamen sıfırdan hesaplanır.
+    """
+    groups = create_groups()
+    rows = []
+    seen = set()
+
+    for _, pharmacies in groups.items():
+        for pharmacy in pharmacies:
+            pharmacy_name = normalize_name(pharmacy)
+            if pharmacy_name in seen:
+                continue
+            seen.add(pharmacy_name)
+            rows.append({
+                "Eczane": pharmacy_name,
+                "Bayram": 0,
+                "Pzt": 0,
+                "Salı": 0,
+                "Çarş": 0,
+                "Perş": 0,
+                "Cuma": 0,
+                "Ctesi": 0,
+                "Pazar": 0,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def load_generated_files(plan_file="Alternatif.xlsx", detail_file="aylik_nobet_data.xlsx"):
+    plan_sheets = pd.read_excel(plan_file, sheet_name=None)
+    detail_df = pd.read_excel(detail_file)
+    return plan_sheets, detail_df
+
+
+def prepare_long_schedule(plan_sheets):
+    rows = []
+
+    for sheet_name, df in plan_sheets.items():
+        if sheet_name.upper() == "GENEL OZET":
+            continue
+        if "Tarih" not in df.columns or "Gün" not in df.columns:
+            continue
+
+        group_cols = [c for c in df.columns if c not in ["Tarih", "Gün"]]
+
+        for _, r in df.iterrows():
+            for g in group_cols:
+                eczane = r.get(g)
+                if pd.notna(eczane) and str(eczane).strip():
+                    rows.append({
+                        "Sayfa": sheet_name,
+                        "Tarih": r["Tarih"],
+                        "Gün": r["Gün"],
+                        "Grup": g,
+                        "Eczane": str(eczane).strip(),
+                    })
+
+    return pd.DataFrame(rows)
+
+
+def get_download_bytes(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
+# =========================================================
+# HERO
+# =========================================================
 
 st.markdown(
-    f"""
-    <div class="hero-card">
-        <div class="hero-grid">
-            <div style="flex:1; min-width:320px;">
-                <div class="hero-badge">💊 AYÇA • Akıllı Yazılım Çözüm Asistanı</div>
-                <h1 class="hero-title">Eczane Nöbet Planlayıcı</h1>
-                <p class="hero-sub">
-                    100+ eczane için geçmiş yük, bayram/arefe geçmişi ve dönemsel denge mantığıyla
-                    daha adil, daha kontrollü ve daha okunabilir nöbet planları oluşturun.
-                </p>
-            </div>
-            {logo_html}
+    """
+    <div class="hero-box">
+        <div class="hero-title">💊 Eczane Nöbet Planlayıcı</div>
+        <div class="hero-subtitle">
+            100+ eczane için grup bazlı, hafta içi / hafta sonu dengeli, bayram ve arefe kurallarını dikkate alan modern nöbet planlama paneli.
         </div>
     </div>
     """,
@@ -389,303 +223,318 @@ st.markdown(
 )
 
 
-# ==============================
-# ÜST METRİKLER
-# ==============================
+# =========================================================
+# SIDEBAR
+# =========================================================
 
-m1, m2, m3, m4 = st.columns(4)
-with m1:
-    create_metric_card("Plan Yılı", yil, "Seçilen dönem")
-with m2:
-    create_metric_card("Başlangıç Ayı", f"{ay:02d}", "İlk oluşturulacak ay")
-with m3:
-    create_metric_card("Plan Süresi", f"{kac_ay} ay", "Ardışık planlama")
-with m4:
-    create_metric_card("Durum", "Hazır", "Excel yüklendiğinde planlanır")
+with st.sidebar:
+    st.header("⚙️ Plan Ayarları")
 
-st.write("")
-
-
-# ==============================
-# ANA SEKMELER
-# ==============================
-
-tab_veri, tab_degisim, tab_sonuc, tab_analiz = st.tabs(
-    ["📂 Veri Yükle", "🔧 Değişiklikler", "📥 Sonuçlar", "📊 Analiz"]
-)
-
-
-# ==============================
-# TAB 1 - VERİ YÜKLE
-# ==============================
-
-with tab_veri:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">📂 Geçmiş Nöbet Dosyası</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="section-text">Ana geçmiş yük sekmesini ve varsa <b>GECMIS_BAYRAM</b> sekmesini içeren Excel dosyasını yükleyin.</div>',
-        unsafe_allow_html=True,
+    yil = st.number_input("Yıl", min_value=2025, max_value=2035, value=2026, step=1)
+    ay = st.selectbox(
+        "Başlangıç Ayı",
+        options=list(range(1, 13)),
+        index=0,
+        format_func=lambda x: f"{x:02d}",
     )
+    ay_sayisi = st.number_input("Kaç Ay Oluşturulsun?", min_value=1, max_value=24, value=1, step=1)
 
-    uploaded_file = st.file_uploader(
-        "Geçmiş nöbet Excel dosyasını yükleyin",
+    st.divider()
+
+    st.subheader("📂 Excel Dosyaları")
+    gecmis_yuk_file = st.file_uploader(
+        "Geçmiş Nöbet Yükü Excel",
         type=["xlsx"],
-        label_visibility="collapsed",
+        help="Boş bırakılırsa tüm eczaneler sıfır geçmişle planlanır.",
+    )
+    gecmis_bayram_file = st.file_uploader(
+        "Geçmiş Bayram / Arefe Excel",
+        type=["xlsx"],
+        help="Opsiyonel. Boş bırakılırsa bayram geçmişi yok kabul edilir.",
     )
 
-    if uploaded_file:
-        try:
-            xls = read_excel_safely(uploaded_file)
-            sheet_names = xls.sheet_names
-            ana_sekme = find_main_sheet(sheet_names)
-
-            if ana_sekme is None:
-                st.error("Ana geçmiş yük sekmesi bulunamadı.")
-                st.stop()
-
-            st.success(f"Excel başarıyla okundu. Sekmeler: {', '.join(sheet_names)}")
-
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Ana Sekme", ana_sekme)
-            with c2:
-                st.metric("Toplam Sekme", len(sheet_names))
-            with c3:
-                st.metric("Bayram Sekmesi", "Var" if "GECMIS_BAYRAM" in sheet_names else "Yok")
-
-            preview_df = pd.read_excel(xls, sheet_name=ana_sekme)
-            with st.expander("👀 Ana geçmiş yük dosyası ön izleme", expanded=True):
-                st.dataframe(preview_df.head(20), use_container_width=True)
-
-            if "GECMIS_BAYRAM" in sheet_names:
-                bayram_preview = pd.read_excel(xls, sheet_name="GECMIS_BAYRAM")
-                with st.expander("🎉 GECMIS_BAYRAM ön izleme", expanded=False):
-                    st.dataframe(bayram_preview.head(20), use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Excel okunamadı: {e}")
-            st.stop()
-    else:
-        st.info("Plan oluşturmak için önce Excel dosyasını yükleyin.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.divider()
+    st.caption("Excel yüklemezseniz sistem bütün eczaneleri sıfır nöbet geçmişiyle başlatır.")
 
 
-# ==============================
-# TAB 2 - ECZANE DEĞİŞİKLİKLERİ
-# ==============================
+# =========================================================
+# ANA ALAN
+# =========================================================
 
-with tab_degisim:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">🔧 Eczane Değişiklikleri</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="section-text">Yeni eczane ekleyebilir veya belirli bir tarihten sonra nöbete dahil edilmeyecek eczane tanımlayabilirsiniz.</div>',
-        unsafe_allow_html=True,
-    )
-
-    degisim = st.toggle("Eczane ekleme / çıkarma yapılacak mı?")
-
-    eklenme = {}
-    cikma = {}
-
-    if degisim:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("### ➕ Eczane Ekle")
-            eczane_ekle = st.text_input("Eklenecek Eczane İsmi")
-            eczane_grup = st.selectbox(
-                "Grup",
-                [
-                    "A1", "A2", "A3",
-                    "B1", "B2", "B3",
-                    "C1", "C2", "C3",
-                    "D1", "D2", "D3",
-                    "E1", "E2", "E3",
-                    "F1", "F2", "F3",
-                    "G1", "G2", "G3",
-                ],
-            )
-            ekleme_tarihi = st.date_input("Eklenme Tarihi", value=datetime.date.today())
-
-            if eczane_ekle:
-                eklenme[eczane_ekle.upper()] = {
-                    "tarih": ekleme_tarihi,
-                    "grup": eczane_grup,
-                }
-                st.success(f"{eczane_ekle.upper()} {eczane_grup} grubuna eklenecek.")
-
-        with col2:
-            st.markdown("### ➖ Eczane Çıkar")
-            eczane_cikar = st.text_input("Çıkarılacak Eczane İsmi", key="cikar")
-            cikis_tarihi = st.date_input("Çıkış Tarihi", value=datetime.date.today())
-
-            if eczane_cikar:
-                cikma[eczane_cikar.upper()] = cikis_tarihi
-                st.warning(f"{eczane_cikar.upper()} {cikis_tarihi} tarihinden itibaren çıkarılacak.")
-    else:
-        st.info("Değişiklik yapılmayacaksa bu alanı kapalı bırakabilirsiniz.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
+tab_plan, tab_ozet, tab_grafik, tab_detay = st.tabs([
+    "🚀 Plan Oluştur",
+    "📌 Genel Özet",
+    "📊 Grafikler",
+    "📅 Aylık Detay",
+])
 
 
-# ==============================
-# PLAN OLUŞTUR
-# ==============================
+# =========================================================
+# TAB 1 - PLAN OLUŞTUR
+# =========================================================
 
-if planla:
-    if "uploaded_file" not in locals() or uploaded_file is None:
-        st.error("Lütfen önce 'Veri Yükle' sekmesinden geçmiş nöbet Excel dosyasını yükleyin.")
-        st.stop()
+with tab_plan:
+    st.markdown('<div class="section-title">Plan Oluşturma</div>', unsafe_allow_html=True)
 
-    with st.spinner("Plan oluşturuluyor..."):
-        try:
-            xls = read_excel_safely(uploaded_file)
-            ana_sekme = find_main_sheet(xls.sheet_names)
+    c1, c2, c3 = st.columns(3)
 
-            if ana_sekme is None:
-                st.error("Ana geçmiş yük sekmesi bulunamadı.")
-                st.stop()
-
-            gecmis_yuk_df = pd.read_excel(xls, sheet_name=ana_sekme)
-
-            gecmis_bayram_df = None
-            if "GECMIS_BAYRAM" in xls.sheet_names:
-                gecmis_bayram_df = pd.read_excel(xls, sheet_name="GECMIS_BAYRAM")
-
-            file1, file2 = run_schedule(
-                y=int(yil),
-                m=int(ay),
-                nm=int(kac_ay),
-                gecmis_yuk_df=gecmis_yuk_df,
-                gecmis_bayram_df=gecmis_bayram_df,
-                eklenme_input=eklenme if "eklenme" in locals() else {},
-                cikma_input=cikma if "cikma" in locals() else {},
-            )
-
-            with open(file1, "rb") as f:
-                st.session_state.plan_data = f.read()
-
-            with open(file2, "rb") as f:
-                st.session_state.aylik_data = f.read()
-
-            st.session_state.plan_file_name = file1
-            st.session_state.aylik_file_name = file2
-
-            st.markdown(
-                '<div class="success-card">✅ Plan başarıyla oluşturuldu. Sonuçlar sekmesinden indirebilir ve analizleri inceleyebilirsiniz.</div>',
-                unsafe_allow_html=True,
-            )
-
-        except Exception as e:
-            st.exception(e)
-
-
-# ==============================
-# TAB 3 - SONUÇLAR
-# ==============================
-
-with tab_sonuc:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">📥 Çıktı Dosyaları</div>', unsafe_allow_html=True)
-
-    if "plan_data" not in st.session_state:
-        st.info("Henüz plan oluşturulmadı. Sol menüden parametreleri seçip 'Plan Oluştur' butonuna basın.")
-    else:
+    with c1:
         st.markdown(
-            '<div class="section-text">Oluşturulan nöbet planı ve aylık istatistik dosyalarını indirebilirsiniz.</div>',
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Seçilen Yıl</div>
+                <div class="metric-value">{yil}</div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
-        col1, col2 = st.columns(2)
+    with c2:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Başlangıç Ayı</div>
+                <div class="metric-value">{ay:02d}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        with col1:
-            st.download_button(
-                "📄 Nöbet Planını İndir",
-                st.session_state.plan_data,
-                "nobet_plani.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
+    with c3:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Planlanacak Ay</div>
+                <div class="metric-value">{ay_sayisi}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        with col2:
-            st.download_button(
-                "📊 Aylık İstatistik İndir",
-                st.session_state.aylik_data,
-                "aylik_detay.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
+    st.write("")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    if gecmis_yuk_file is None:
+        gecmis_yuk_df = create_empty_history_df()
+        gecmis_bayram_df = None
 
+        st.markdown(
+            """
+            <div class="soft-warning">
+                Geçmiş nöbet dosyası yüklenmedi. Sistem tüm eczaneleri 0 geçmişle başlatacak.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-# ==============================
-# TAB 4 - ANALİZ
-# ==============================
+        with st.expander("Sıfırdan oluşturulan geçmiş veri ön izle"):
+            st.dataframe(gecmis_yuk_df, use_container_width=True)
 
-with tab_analiz:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">📊 Plan Analizi</div>', unsafe_allow_html=True)
-
-    if "plan_data" not in st.session_state:
-        st.info("Analiz için önce plan oluşturun.")
     else:
-        try:
-            from io import BytesIO
+        gecmis_yuk_df = read_excel_file(gecmis_yuk_file)
+        gecmis_bayram_df = read_excel_file(gecmis_bayram_file) if gecmis_bayram_file is not None else None
 
-            plan_xls = pd.ExcelFile(BytesIO(st.session_state.plan_data))
+        st.markdown(
+            """
+            <div class="soft-success">
+                Geçmiş nöbet dosyası yüklendi. Plan bu geçmiş veriye göre oluşturulacak.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            if "GENEL OZET" in plan_xls.sheet_names:
-                summary_df = pd.read_excel(plan_xls, sheet_name="GENEL OZET")
+        with st.expander("Yüklenen geçmiş nöbet dosyasını ön izle"):
+            st.dataframe(gecmis_yuk_df, use_container_width=True)
 
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    st.metric("Toplam Eczane", summary_df["Eczane"].nunique() if "Eczane" in summary_df.columns else 0)
-                with c2:
-                    st.metric("Toplam Nöbet", int(summary_df["Toplam Nöbet"].sum()) if "Toplam Nöbet" in summary_df.columns else 0)
-                with c3:
-                    st.metric("Toplam Bayram", int(summary_df["Bayram"].sum()) if "Bayram" in summary_df.columns else 0)
-                with c4:
-                    st.metric("Ort. Katsayı", round(summary_df["Toplam Katsayı"].mean(), 2) if "Toplam Katsayı" in summary_df.columns else 0)
+        if gecmis_bayram_df is not None:
+            with st.expander("Yüklenen geçmiş bayram / arefe dosyasını ön izle"):
+                st.dataframe(gecmis_bayram_df, use_container_width=True)
 
-                st.markdown("### Genel Özet Tablosu")
-                st.dataframe(summary_df, use_container_width=True, height=420)
+    if st.button("✅ Nöbet Planını Oluştur", use_container_width=True):
+        with st.spinner("Plan oluşturuluyor..."):
+            plan_file, detail_file = run_schedule(
+                y=int(yil),
+                m=int(ay),
+                nm=int(ay_sayisi),
+                gecmis_yuk_df=gecmis_yuk_df,
+                gecmis_bayram_df=gecmis_bayram_df,
+            )
 
-                if px is not None and "Toplam Katsayı" in summary_df.columns:
-                    st.markdown("### Toplam Katsayı Dağılımı")
-                    fig = px.bar(
-                        summary_df.sort_values("Toplam Katsayı", ascending=False),
-                        x="Eczane",
-                        y="Toplam Katsayı",
-                        color="Grup" if "Grup" in summary_df.columns else None,
-                        title="Eczane Bazlı Toplam Katsayı",
-                    )
-                    fig.update_layout(xaxis_tickangle=-60, height=520)
-                    st.plotly_chart(fig, use_container_width=True)
+        st.session_state["plan_file"] = plan_file
+        st.session_state["detail_file"] = detail_file
+        st.success("Plan başarıyla oluşturuldu.")
 
-                if px is not None and "Bayram" in summary_df.columns:
-                    st.markdown("### Bayram Dağılımı")
-                    fig2 = px.bar(
-                        summary_df.sort_values("Bayram", ascending=False),
-                        x="Eczane",
-                        y="Bayram",
-                        color="Grup" if "Grup" in summary_df.columns else None,
-                        title="Eczane Bazlı Bayram Nöbeti",
-                    )
-                    fig2.update_layout(xaxis_tickangle=-60, height=480)
-                    st.plotly_chart(fig2, use_container_width=True)
+    if "plan_file" in st.session_state:
+        st.markdown('<div class="section-title">Dosya İndirme</div>', unsafe_allow_html=True)
+        d1, d2 = st.columns(2)
 
-                month_sheets = [s for s in plan_xls.sheet_names if s != "GENEL OZET"]
-                if month_sheets:
-                    st.markdown("### Aylık Takvim Ön İzleme")
-                    selected_sheet = st.selectbox("Ay seç", month_sheets)
-                    month_df = pd.read_excel(plan_xls, sheet_name=selected_sheet)
-                    st.dataframe(month_df, use_container_width=True, height=420)
-            else:
-                st.warning("GENEL OZET sayfası bulunamadı.")
+        with d1:
+            st.download_button(
+                "📥 Plan Excel Dosyasını İndir",
+                data=get_download_bytes(st.session_state["plan_file"]),
+                file_name=st.session_state["plan_file"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
-        except Exception as e:
-            st.exception(e)
+        with d2:
+            st.download_button(
+                "📥 Aylık Detay Dosyasını İndir",
+                data=get_download_bytes(st.session_state["detail_file"]),
+                file_name=st.session_state["detail_file"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
-    st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================================================
+# ORTAK VERİ YÜKLEME
+# =========================================================
+
+plan_ready = "plan_file" in st.session_state and "detail_file" in st.session_state
+
+if plan_ready:
+    plan_sheets, detail_df = load_generated_files(st.session_state["plan_file"], st.session_state["detail_file"])
+    summary_df = plan_sheets.get("GENEL OZET", pd.DataFrame())
+    long_schedule_df = prepare_long_schedule(plan_sheets)
+else:
+    plan_sheets = {}
+    detail_df = pd.DataFrame()
+    summary_df = pd.DataFrame()
+    long_schedule_df = pd.DataFrame()
+
+
+# =========================================================
+# TAB 2 - GENEL ÖZET
+# =========================================================
+
+with tab_ozet:
+    st.markdown('<div class="section-title">Genel Özet</div>', unsafe_allow_html=True)
+
+    if not plan_ready:
+        st.warning("Özet ekranı için önce plan oluşturun.")
+    else:
+        toplam_eczane = summary_df["Eczane"].nunique() if "Eczane" in summary_df.columns else 0
+        toplam_nobet = summary_df["Toplam Nöbet"].sum() if "Toplam Nöbet" in summary_df.columns else 0
+        toplam_bayram = summary_df["Bayram"].sum() if "Bayram" in summary_df.columns else 0
+        ort_katsayi = summary_df["Toplam Katsayı"].mean() if "Toplam Katsayı" in summary_df.columns else 0
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            st.metric("Toplam Eczane", int(toplam_eczane))
+        with c2:
+            st.metric("Toplam Nöbet", int(toplam_nobet))
+        with c3:
+            st.metric("Toplam Bayram", int(toplam_bayram))
+        with c4:
+            st.metric("Ortalama Katsayı", round(float(ort_katsayi), 2))
+
+        st.dataframe(summary_df, use_container_width=True, height=520)
+
+
+# =========================================================
+# TAB 3 - GRAFİKLER
+# =========================================================
+
+with tab_grafik:
+    st.markdown('<div class="section-title">Grafik Analizi</div>', unsafe_allow_html=True)
+
+    if not plan_ready:
+        st.warning("Grafikler için önce plan oluşturun.")
+    else:
+        g1, g2 = st.columns(2)
+
+        if "Toplam Katsayı" in summary_df.columns:
+            fig1 = px.bar(
+                summary_df.sort_values("Toplam Katsayı", ascending=False),
+                x="Eczane",
+                y="Toplam Katsayı",
+                color="Grup" if "Grup" in summary_df.columns else None,
+                title="Eczane Bazlı Toplam Katsayı",
+            )
+            fig1.update_layout(xaxis_tickangle=-60, height=520)
+            g1.plotly_chart(fig1, use_container_width=True)
+
+        if "Bayram" in summary_df.columns:
+            fig2 = px.bar(
+                summary_df.sort_values("Bayram", ascending=False),
+                x="Eczane",
+                y="Bayram",
+                color="Grup" if "Grup" in summary_df.columns else None,
+                title="Bayram Nöbet Dağılımı",
+            )
+            fig2.update_layout(xaxis_tickangle=-60, height=520)
+            g2.plotly_chart(fig2, use_container_width=True)
+
+        st.markdown('<div class="section-title">Hafta İçi / Hafta Sonu Dengesi</div>', unsafe_allow_html=True)
+
+        needed_cols = ["Pzt", "Salı", "Çarş", "Perş", "Cuma", "Ctesi", "Pazar"]
+        if all(c in summary_df.columns for c in needed_cols):
+            tmp = summary_df.copy()
+            tmp["Hafta İçi"] = tmp[["Pzt", "Salı", "Çarş", "Perş", "Cuma"]].sum(axis=1)
+            tmp["Hafta Sonu"] = tmp[["Ctesi", "Pazar"]].sum(axis=1)
+
+            balance_df = tmp[["Eczane", "Grup", "Hafta İçi", "Hafta Sonu"]].melt(
+                id_vars=["Eczane", "Grup"],
+                value_vars=["Hafta İçi", "Hafta Sonu"],
+                var_name="Tür",
+                value_name="Adet",
+            )
+
+            fig3 = px.bar(
+                balance_df,
+                x="Eczane",
+                y="Adet",
+                color="Tür",
+                title="Hafta İçi / Hafta Sonu Dağılımı",
+                barmode="group",
+            )
+            fig3.update_layout(xaxis_tickangle=-60, height=560)
+            st.plotly_chart(fig3, use_container_width=True)
+
+
+# =========================================================
+# TAB 4 - AYLIK DETAY
+# =========================================================
+
+with tab_detay:
+    st.markdown('<div class="section-title">Aylık Takvim ve Detay</div>', unsafe_allow_html=True)
+
+    if not plan_ready:
+        st.warning("Aylık detay için önce plan oluşturun.")
+    else:
+        month_sheets = [s for s in plan_sheets.keys() if s.upper() != "GENEL OZET"]
+        selected_sheet = st.selectbox("Ay Seç", month_sheets)
+
+        if selected_sheet:
+            st.dataframe(plan_sheets[selected_sheet], use_container_width=True, height=520)
+
+        st.markdown('<div class="section-title">Eczane Bazlı Aylık Detay</div>', unsafe_allow_html=True)
+
+        if not detail_df.empty:
+            eczane_list = sorted(detail_df["Eczane"].dropna().unique()) if "Eczane" in detail_df.columns else []
+            selected_eczane = st.selectbox("Eczane Seç", ["Tümü"] + eczane_list)
+
+            filtered = detail_df.copy()
+            if selected_eczane != "Tümü":
+                filtered = filtered[filtered["Eczane"] == selected_eczane]
+
+            st.dataframe(filtered, use_container_width=True, height=420)
+
+            day_cols = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+            if all(c in filtered.columns for c in day_cols):
+                chart_df = filtered.melt(
+                    id_vars=["Eczane", "Yıl", "Ay"],
+                    value_vars=day_cols,
+                    var_name="Gün",
+                    value_name="Adet",
+                )
+
+                fig4 = px.bar(
+                    chart_df,
+                    x="Gün",
+                    y="Adet",
+                    color="Eczane" if selected_eczane == "Tümü" else None,
+                    title="Gün Bazlı Aylık Dağılım",
+                )
+                st.plotly_chart(fig4, use_container_width=True)
