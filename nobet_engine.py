@@ -59,40 +59,38 @@ SETTINGS = Settings()
 
 monthly_stats = defaultdict(lambda: defaultdict(lambda: {
     "bayram": 0,
-    "haftasonu": 0,
-    "normal": 0,
-    "arefe": 0
+    "arefe": 0,
+    "pazartesi": 0,
+    "salı": 0,
+    "çarşamba": 0,
+    "perşembe": 0,
+    "cuma": 0,
+    "cumartesi": 0,
+    "pazar": 0,
 }))
 
 eklenme_tarihi = {}
 cikma_tarihi = {}
 eklenme = {}
 
-# Seçenek A
-BAYRAM_YASAK = set()
-AREFE_YASAK = set()
+# İstersen buraya bayram tutmasını istemediğin eczaneleri yazabilirsin.
+BAYRAM_YASAK = {
+    "ECZANE1",
+    "ECZANE5",
+}
 
 
 # =========================================================
 # İSİM NORMALİZASYONU
 # =========================================================
 
-NAME_ALIASES = {
-    "MERVE ONİKİŞUBAT": "MERVE",
-    "MERVE (ONİKİŞUBAT)": "MERVE",
-    "İBNİ SİNA DULKADİROĞLU": "İBNİ SİNA",
-    "İBNİ SİNA(DULKADİROĞLU)": "İBNİ SİNA",
-    "İBNİ SİNA ONİKİŞUBAT": "İBNİ SİNA 2",
-    "İBNİ SİNA(ONİKİŞUBAT)": "İBNİ SİNA 2",
-    "HÜDAYİOĞLU": "HÜDAYIOĞLU",
-    "GLSAH": "GÜLŞAH",
-}
+NAME_ALIASES = {}
 
 
 def normalize_name(name):
     if name is None:
         return ""
-    name = str(name).strip()
+    name = str(name).strip().upper()
     return NAME_ALIASES.get(name, name)
 
 
@@ -113,6 +111,19 @@ def safe_int(v):
 # EXCEL / DATAFRAME OKUYUCU
 # =========================================================
 
+DAY_KEYS = {
+    0: "pazartesi",
+    1: "salı",
+    2: "çarşamba",
+    3: "perşembe",
+    4: "cuma",
+    5: "cumartesi",
+    6: "pazar",
+}
+
+DAY_SHORT = ["Pzt", "Salı", "Çarş", "Perş", "Cuma", "Ctesi", "Pazar"]
+
+
 def excelden_gecmis_yuk_df(df):
     df = df.copy()
     df.columns = [str(c).strip().lower() for c in df.columns]
@@ -126,7 +137,7 @@ def excelden_gecmis_yuk_df(df):
         "perş": None,
         "cuma": None,
         "ctesi": None,
-        "pazar": None
+        "pazar": None,
     }
 
     for c in df.columns:
@@ -142,7 +153,7 @@ def excelden_gecmis_yuk_df(df):
             kolon_map["çarş"] = c
         elif "per" in c:
             kolon_map["perş"] = c
-        elif "cuma" in c:
+        elif "cuma" in c and "cumartesi" not in c:
             kolon_map["cuma"] = c
         elif "cte" in c or "cumartesi" in c:
             kolon_map["ctesi"] = c
@@ -155,31 +166,30 @@ def excelden_gecmis_yuk_df(df):
     gecmis_yuk = {}
 
     for _, r in df.iterrows():
-        eczane_raw = str(r[kolon_map["eczane"]]).strip()
-        if not eczane_raw or eczane_raw.lower() == "nan":
+        eczane_raw = r.get(kolon_map["eczane"])
+        if eczane_raw is None or pd.isna(eczane_raw):
             continue
 
         eczane = normalize_name(eczane_raw)
-
-        bayram = safe_int(r.get(kolon_map["bayram"], 0))
-        pzt = safe_int(r.get(kolon_map["pzt"], 0))
-        sali = safe_int(r.get(kolon_map["salı"], 0))
-        cars = safe_int(r.get(kolon_map["çarş"], 0))
-        pers = safe_int(r.get(kolon_map["perş"], 0))
-        cuma = safe_int(r.get(kolon_map["cuma"], 0))
-        ctesi = safe_int(r.get(kolon_map["ctesi"], 0))
-        pazar = safe_int(r.get(kolon_map["pazar"], 0))
-
-        hafta_sonu = ctesi + pazar
-        normal = pzt + sali + cars + pers + cuma
+        if not eczane:
+            continue
 
         gecmis_yuk[eczane] = {
-            "bayram": bayram,
-            "haftasonu": hafta_sonu,
-            "normal": normal
+            "bayram": safe_int(r.get(kolon_map["bayram"], 0)),
+            "pazartesi": safe_int(r.get(kolon_map["pzt"], 0)),
+            "salı": safe_int(r.get(kolon_map["salı"], 0)),
+            "çarşamba": safe_int(r.get(kolon_map["çarş"], 0)),
+            "perşembe": safe_int(r.get(kolon_map["perş"], 0)),
+            "cuma": safe_int(r.get(kolon_map["cuma"], 0)),
+            "cumartesi": safe_int(r.get(kolon_map["ctesi"], 0)),
+            "pazar": safe_int(r.get(kolon_map["pazar"], 0)),
         }
 
     return gecmis_yuk
+
+
+def excelden_gecmis_yuk(excel_dosya):
+    return excelden_gecmis_yuk_df(pd.read_excel(excel_dosya))
 
 
 def parse_excel_date(v):
@@ -247,10 +257,10 @@ def excelden_gecmis_bayram_df(df):
         d = parse_excel_date(r.get(col_tarih))
         e = r.get(col_eczane)
 
-        if d is None or e is None or (isinstance(e, float) and pd.isna(e)):
+        if d is None or e is None or pd.isna(e):
             continue
 
-        eczane = normalize_name(str(e).strip())
+        eczane = normalize_name(e)
         if not eczane:
             continue
 
@@ -259,14 +269,14 @@ def excelden_gecmis_bayram_df(df):
         kayitlar.append({
             "tarih": d,
             "tur": tur,
-            "eczane": eczane
+            "eczane": eczane,
         })
 
     return kayitlar
 
 
 # =========================================================
-# TATİL FONKSİYONLARI
+# TATİL / AREFE
 # =========================================================
 
 def turkiye_tatilleri(year):
@@ -279,21 +289,11 @@ def turkiye_tatilleri(year):
         date(year, 8, 30),
         date(year, 10, 29),
 
-        date(2026, 3, 20),
-        date(2026, 3, 21),
-        date(2026, 3, 22),
-        date(2026, 5, 27),
-        date(2026, 5, 28),
-        date(2026, 5, 29),
-        date(2026, 5, 30),
+        date(2026, 3, 20), date(2026, 3, 21), date(2026, 3, 22),
+        date(2026, 5, 27), date(2026, 5, 28), date(2026, 5, 29), date(2026, 5, 30),
 
-        date(2027, 3, 20),
-        date(2027, 3, 21),
-        date(2027, 3, 22),
-        date(2027, 5, 27),
-        date(2027, 5, 28),
-        date(2027, 5, 29),
-        date(2027, 5, 30),
+        date(2027, 3, 20), date(2027, 3, 21), date(2027, 3, 22),
+        date(2027, 5, 27), date(2027, 5, 28), date(2027, 5, 29), date(2027, 5, 30),
     }
 
 
@@ -320,7 +320,7 @@ def bayram_turu_of_date(d):
     if d in dini:
         return "DINI"
 
-    if d in {
+    resmi = {
         date(d.year, 1, 1),
         date(d.year, 4, 23),
         date(d.year, 5, 1),
@@ -328,7 +328,9 @@ def bayram_turu_of_date(d):
         date(d.year, 7, 15),
         date(d.year, 8, 30),
         date(d.year, 10, 29),
-    }:
+    }
+
+    if d in resmi:
         return "RESMI"
 
     return "BAYRAM"
@@ -336,22 +338,21 @@ def bayram_turu_of_date(d):
 
 # =========================================================
 # GÜN KATSAYISI
+# Not: İkinci koddaki mantığa göre bayram/arefe katsayısı 0 tutuldu.
 # =========================================================
 
 def day_weight(d, tatil, arefe):
-    if d in tatil:
-        return 2.0
+    if d in tatil or d in arefe:
+        return 0
     if d.weekday() == 6:
         return 2.0
     if d.weekday() == 5:
-        return 1.5
-    if d in arefe:
         return 1.5
     return 1.0
 
 
 # =========================================================
-# AKTİFLİK
+# AKTİFLİK VE YARDIMCILAR
 # =========================================================
 
 def is_person_active_on_date(p, d):
@@ -368,10 +369,6 @@ def month_progress_ratio(d, month_total_days):
     return d.day / month_total_days
 
 
-# =========================================================
-# YARDIMCILAR
-# =========================================================
-
 def get_gap_days(last_dates, p, d):
     if p not in last_dates:
         return 999
@@ -383,13 +380,7 @@ def get_weekend_count(weekday_stats, p):
 
 
 def get_weekday_count(weekday_stats, p):
-    return (
-        weekday_stats[p][0] +
-        weekday_stats[p][1] +
-        weekday_stats[p][2] +
-        weekday_stats[p][3] +
-        weekday_stats[p][4]
-    )
+    return sum(weekday_stats[p][i] for i in range(5))
 
 
 def get_last_bayram_gap_days(bayram_dates, p, d):
@@ -457,7 +448,7 @@ def score_weekend_balance(p, d, weekday_stats):
             skor += SETTINGS.WEEKDAY_BALANCE_PENALTY * (abs(oran_farki) ** SETTINGS.BALANCE_POWER) * (toplam + 2)
 
         if adet_farki < 0:
-            skor += SETTINGS.COUNT_GAP_PENALTY_WEEKDAY * ((abs(adet_farki)) ** 2)
+            skor += SETTINGS.COUNT_GAP_PENALTY_WEEKDAY * (abs(adet_farki) ** 2)
 
         if toplam >= 5 and hafta_sonu == 0:
             skor += 25
@@ -488,17 +479,17 @@ def score_monthly_coverage(p, d, monthly_assignment_counts, month_total_days):
     return skor
 
 
-def score_recent_bayram_penalty(p, d, bayram_dates, arefe_dates):
+def score_recent_bayram_penalty(p, d, bayram_dates, arefe_dates, tatil, arefe):
     skor = 0
     tur = bayram_turu_of_date(d)
 
-    if tur == "AREFE":
+    if d in arefe or tur == "AREFE":
         gap = get_last_arefe_gap_days(arefe_dates, p, d)
         if gap <= SETTINGS.VERY_RECENT_BAYRAM_WINDOW_DAYS:
             skor += SETTINGS.AREFE_RECENT_PENALTY
         return skor
 
-    if d in turkiye_tatilleri(d.year):
+    if d in tatil:
         gap = get_last_bayram_gap_days(bayram_dates, p, d)
 
         if gap <= SETTINGS.RECENT_BAYRAM_WINDOW_DAYS:
@@ -512,7 +503,7 @@ def score_recent_bayram_penalty(p, d, bayram_dates, arefe_dates):
             p=p,
             d=d,
             target_type=tur,
-            window_days=SETTINGS.RECENT_BAYRAM_WINDOW_DAYS
+            window_days=SETTINGS.RECENT_BAYRAM_WINDOW_DAYS,
         )
         skor += same_type_recent * SETTINGS.SAME_BAYRAM_TYPE_RECENT_PENALTY
 
@@ -523,6 +514,8 @@ def score_person(
     p,
     d,
     w,
+    tatil,
+    arefe,
     totals,
     counts,
     weekday_stats,
@@ -530,7 +523,7 @@ def score_person(
     monthly_assignment_counts,
     month_total_days,
     bayram_dates,
-    arefe_dates
+    arefe_dates,
 ):
     skor = totals[p] * SETTINGS.DENGE_KATSAYI + counts[p]
 
@@ -549,48 +542,36 @@ def score_person(
 
     skor += score_weekend_balance(p, d, weekday_stats)
     skor += score_monthly_coverage(p, d, monthly_assignment_counts, month_total_days)
-    skor += score_recent_bayram_penalty(p, d, bayram_dates, arefe_dates)
+    skor += score_recent_bayram_penalty(p, d, bayram_dates, arefe_dates, tatil, arefe)
 
     return skor + random.random() * 0.01
 
 
 # =========================================================
-# GRUPLAR
+# 104 ECZANELİ GRUPLAR
 # =========================================================
 
 def create_groups():
     groups = {
-        "A1": ["ŞAHBAZ", "BATUHAN", "İRŞAD", "MEHPARE", "GÜL", "GEMCİ", "RAİKA DOKUYUCU", "ANADOLU", "CANSU"],
-        "A2": ["GÖKTUĞ", "GÜNEY", "NEŞE SAYIT", "FLORA", "BOĞAZİÇİ", "HÜSNA", "GÜLERYÜZ", "ÜNGÜT", "LİMON"],
-        "A3": ["ESRA AKSOY", "NAR", "AVŞAROĞLU", "MERT", "GAZİ", "DÖKÜCÜ", "AKKÜNCÜ", "ANNEM", "BİLAL"],
+        "A1": ["ECZANE1", "ECZANE2", "ECZANE3", "ECZANE4", "ECZANE5", "ECZANE6", "ECZANE7", "ECZANE8", "ECZANE9"],
+        "A2": ["ECZANE10", "ECZANE11", "ECZANE12", "ECZANE13", "ECZANE14", "ECZANE15", "ECZANE16", "ECZANE17", "ECZANE18"],
+        "A3": ["ECZANE19", "ECZANE20", "ECZANE21", "ECZANE22", "ECZANE23", "ECZANE24", "ECZANE25", "ECZANE26", "ECZANE27"],
 
-        "B1": ["NİŞANTAŞI", "EDA", "ŞENEL", "FARAH HATİPOĞLU", "MERVE", "ELVİN", "BİNEVLER", "TEKEREK"],
-        "B2": ["SERPİL", "FURKAN", "ARISOY", "SU", "AKASYA", "CENNET", "ÇAĞATAY", "İNCEER", "HİLAL"],
-        "B3": ["KAYNAR", "NATUREL", "OKAN", "ESRA BÜYÜKDERELİ", "BÜŞRA ATA", "BAL", "GÜLŞAH", "CEYDA İLHAN"],
+        "B1": ["ECZANE28", "ECZANE29", "ECZANE30", "ECZANE31", "ECZANE32", "ECZANE33", "ECZANE34", "ECZANE35"],
+        "B2": ["ECZANE36", "ECZANE37", "ECZANE38", "ECZANE39", "ECZANE40", "ECZANE41", "ECZANE42", "ECZANE43", "ECZANE44"],
+        "B3": ["ECZANE45", "ECZANE46", "ECZANE47", "ECZANE48", "ECZANE49", "ECZANE50", "ECZANE51", "ECZANE52"],
 
-        "C1": ["FİLİZ", "ÇİĞDEM", "KARŞIYAKA", "DEMET", "MURAT", "HÜDAYIOĞLU", "CANPOLAT", "DAVARCIOĞLU"],
-        "C2": ["PAKSOY", "ZEYNEP", "GÖKÇE", "HÜRRİYET", "KURTULUŞ", "KAYTAN", "KOZANOĞLU", "İBNİ SİNA 2", "BİLGE"],
-        "C3": ["NİSAN", "SELİN", "IHLAMUR", "DORUK", "ELMAS", "ONİKİŞUBAT", "BOLAT", "ZÜMRA", "SAADET"],
+        "C1": ["ECZANE53", "ECZANE54", "ECZANE55", "ECZANE56", "ECZANE57", "ECZANE58", "ECZANE59", "ECZANE60"],
+        "C2": ["ECZANE61", "ECZANE62", "ECZANE63", "ECZANE64", "ECZANE65", "ECZANE66", "ECZANE67", "ECZANE68", "ECZANE69"],
+        "C3": ["ECZANE70", "ECZANE71", "ECZANE72", "ECZANE73", "ECZANE74", "ECZANE75", "ECZANE76", "ECZANE77", "ECZANE78"],
 
-        "D1": ["YAĞMUR", "AYSUN", "CEREN", "BAHADIR", "SİMYA", "DERYA", "VURAL", "ÇOLAKOĞLU"],
-        "D2": ["ÇARE", "KOÇAK", "KEREM", "CAN", "TEKİNŞEN", "SIHHAT", "YATILI BÖLGE", "VEZİR", "DOĞA"],
-        "D3": ["ERSOY", "HACETTEPE", "SAĞOCAK", "ARZU", "DEMİRCİLER", "ORTASEKİ", "VİLDAN", "KARAMANLI", "SARIKAYA"],
-
-        "E1": ["ONUR", "ÖZCAN", "AKSU", "VERESELİ PELİN", "NİMET", "AKPINAR", "ARSLANTÜRK", "SÜLEYMAN", "NESİBE"],
-        "E2": ["KAZANCI", "DOĞAN", "HARUN", "EMİR", "LAVANTA", "YERHAN", "REMZİ", "MAĞRALI", "YÖRÜKSELİM"],
-        "E3": ["CEYLAN", "ÇINAR", "TUNA", "AYŞE", "AKSÜT", "NEFES", "MEHTAP", "BAYRAM"],
-
-        "F1": ["ARAS", "YUNUS EMRE", "ERDİ", "YEDİTEPE", "DEFNE", "ELİF", "OCAK", "KEVSER", "DENİZ"],
-        "F2": ["SÜMEN", "TUĞBA", "MAVİ", "GAMZE", "YALÇIN", "SOLMAZ", "KÜMBET", "SERKAN", "İBNİ SİNA"],
-        "F3": ["ÖZLEM", "KARAKÜÇÜK", "AYLİN TATLI", "ÖZDEMİR", "NECİP FAZIL", "CEM", "RAMAZANOĞLU", "KILIÇ", "LEYLA DOKUMACI"],
-
-        "G1": ["SIDIKA", "TUĞRUL", "BESLER", "SEMA", "NİL", "ASLANBEY", "ESRA", "GÜVEN"],
-        "G2": ["YILDIRIM", "DEVA", "ŞİFA", "SEZAL", "TOMAR", "YÜCEL", "LOKMAN", "ŞİMŞEK"],
-        "G3": ["GÜNEŞ", "KARACAOĞLAN", "ÇEVİK", "PİRİ REİS 1453", "DERMAN", "ESMA", "AYŞEGÜL", "POYRAZ", "ALYA"],
+        "D1": ["ECZANE79", "ECZANE80", "ECZANE81", "ECZANE82", "ECZANE83", "ECZANE84", "ECZANE85", "ECZANE86"],
+        "D2": ["ECZANE87", "ECZANE88", "ECZANE89", "ECZANE90", "ECZANE91", "ECZANE92", "ECZANE93", "ECZANE94", "ECZANE95"],
+        "D3": ["ECZANE96", "ECZANE97", "ECZANE98", "ECZANE99", "ECZANE100", "ECZANE101", "ECZANE102", "ECZANE103", "ECZANE104"],
     }
 
     for eczane, data in eklenme.items():
-        grup = data["grup"]
+        grup = str(data["grup"]).upper().strip()
         eczane = normalize_name(eczane)
         if grup in groups and eczane not in groups[grup]:
             groups[grup].append(eczane)
@@ -599,28 +580,18 @@ def create_groups():
 
 
 # =========================================================
-# ROTASYON
+# ROTASYON - İKİNCİ KOD MANTIĞI
+# Günde 4 eczane seçilir.
 # =========================================================
 
 KOMB_ABC = [
-    ("A1", "B2", "C3"),
-    ("B1", "C2", "A3"),
-    ("C1", "A2", "B3"),
-    ("A1", "C2", "B3"),
-    ("B1", "A2", "C3"),
-    ("C1", "B2", "A3")
+    ("A1", "B2", "C3", "D1"),
+    ("B1", "C2", "A3", "D3"),
+    ("C1", "A2", "B3", "D2"),
+    ("A1", "C2", "B3", "D1"),
+    ("B1", "A2", "C3", "D2"),
+    ("C1", "B2", "A3", "D3"),
 ]
-
-KOMB_DEG = [
-    ("D1", "E2", "G3"),
-    ("E1", "G2", "D3"),
-    ("G1", "D2", "E3"),
-    ("D1", "G2", "E3"),
-    ("E1", "D2", "G3"),
-    ("G1", "E2", "D3")
-]
-
-F_ROTASYON = ["F1", "F2", "F3"]
 
 
 # =========================================================
@@ -643,7 +614,7 @@ def zorunlu_secim(
     arefe_dates,
     monthly_assignment_counts,
     month_total_days,
-    today_used
+    today_used,
 ):
     grup_norm = [normalize_name(p) for p in grup]
 
@@ -679,18 +650,31 @@ def zorunlu_secim(
         adaylar = max_gap_asanlar
 
     if d in tatil:
+        # 1) Bayram yasaklı eczaneler elenir.
+        adaylar = [p for p in adaylar if p not in BAYRAM_YASAK]
+
+        # 2) Aynı yıl ikinci kez bayram tamamen engellenir.
         bayram_uygun = [p for p in adaylar if bayram_year_stats[p][d.year] == 0]
         if bayram_uygun:
             adaylar = bayram_uygun
 
+        # 3) Toplam bayram geçmişi az olan öne alınır.
         if adaylar:
             min_b = min(bayram_stats[p] for p in adaylar)
-            esitler = [p for p in adaylar if bayram_stats[p] == min_b]
-            if esitler:
-                adaylar = esitler
+            adaylar = [p for p in adaylar if bayram_stats[p] == min_b]
 
     elif d in arefe:
-        pass
+        # Arefede de geçmiş arefesi az olanlar öne alınır.
+        if adaylar:
+            min_arefe = min(len(arefe_dates[p]) for p in adaylar)
+            adaylar = [p for p in adaylar if len(arefe_dates[p]) == min_arefe]
+
+    if not adaylar:
+        if d in tatil:
+            adaylar = [
+                p for p in aktifler
+                if p not in BAYRAM_YASAK and bayram_year_stats[p][d.year] == 0
+            ]
 
     if not adaylar:
         adaylar = [p for p in aktifler if p not in today_used] or list(aktifler) or list(grup_norm)
@@ -704,6 +688,8 @@ def zorunlu_secim(
             p=p,
             d=d,
             w=w,
+            tatil=tatil,
+            arefe=arefe,
             totals=totals,
             counts=counts,
             weekday_stats=weekday_stats,
@@ -711,8 +697,8 @@ def zorunlu_secim(
             monthly_assignment_counts=monthly_assignment_counts,
             month_total_days=month_total_days,
             bayram_dates=bayram_dates,
-            arefe_dates=arefe_dates
-        )
+            arefe_dates=arefe_dates,
+        ),
     )
 
     return pick
@@ -733,7 +719,7 @@ def generate_month(
     last_dates,
     bayram_year_stats,
     bayram_dates,
-    arefe_dates
+    arefe_dates,
 ):
     tatil = turkiye_tatilleri(year)
     arefe = arefe_gunleri(year)
@@ -751,7 +737,7 @@ def generate_month(
         picks = {}
         today_used = set()
 
-        for g in list(KOMB_ABC[i % 6]) + list(KOMB_DEG[i % 6]) + [F_ROTASYON[i % 3]]:
+        for g in KOMB_ABC[i % 6]:
             pick = zorunlu_secim(
                 grup=groups[g],
                 d=d,
@@ -768,7 +754,7 @@ def generate_month(
                 arefe_dates=arefe_dates,
                 monthly_assignment_counts=monthly_assignment_counts,
                 month_total_days=dim,
-                today_used=today_used
+                today_used=today_used,
             )
 
             picks[g] = pick
@@ -790,10 +776,8 @@ def generate_month(
             elif d in arefe:
                 arefe_dates[pick].append(d)
                 monthly_stats[pick][key]["arefe"] += 1
-            elif d.weekday() >= 5:
-                monthly_stats[pick][key]["haftasonu"] += 1
             else:
-                monthly_stats[pick][key]["normal"] += 1
+                monthly_stats[pick][key][DAY_KEYS[d.weekday()]] += 1
 
         schedule[d] = picks
 
@@ -801,16 +785,22 @@ def generate_month(
 
 
 # =========================================================
-# MAIN
+# ANA MOTOR
 # =========================================================
 
-def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
+def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None, output_name="Alternatif.xlsx"):
     global monthly_stats
+
     monthly_stats = defaultdict(lambda: defaultdict(lambda: {
         "bayram": 0,
-        "haftasonu": 0,
-        "normal": 0,
-        "arefe": 0
+        "arefe": 0,
+        "pazartesi": 0,
+        "salı": 0,
+        "çarşamba": 0,
+        "perşembe": 0,
+        "cuma": 0,
+        "cumartesi": 0,
+        "pazar": 0,
     }))
 
     if GECMIS_BAYRAM is None:
@@ -826,6 +816,7 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
     bayram_dates = defaultdict(list)
     arefe_dates = defaultdict(list)
     last_dates = {}
+    gecmis_katsayi_map = {}
 
     for p, v in GECMIS_YUK.items():
         p = normalize_name(p)
@@ -833,14 +824,42 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
         if p not in totals:
             continue
 
-        kats = v["normal"] + v["haftasonu"] * 1.5 + v["bayram"] * 2
+        kats = (
+            v.get("pazartesi", 0) +
+            v.get("salı", 0) +
+            v.get("çarşamba", 0) +
+            v.get("perşembe", 0) +
+            v.get("cuma", 0) +
+            v.get("cumartesi", 0) * 1.5 +
+            v.get("pazar", 0) * 2
+        )
 
         totals[p] += kats
-        counts[p] += v["normal"] + v["haftasonu"] + v["bayram"]
-        bayram_stats[p] += v["bayram"]
+        counts[p] += (
+            v.get("pazartesi", 0) +
+            v.get("salı", 0) +
+            v.get("çarşamba", 0) +
+            v.get("perşembe", 0) +
+            v.get("cuma", 0) +
+            v.get("cumartesi", 0) +
+            v.get("pazar", 0) +
+            v.get("bayram", 0)
+        )
 
-        weekday_stats[p][5] += v["haftasonu"] // 2
-        weekday_stats[p][6] += v["haftasonu"] - v["haftasonu"] // 2
+        bayram_stats[p] += v.get("bayram", 0)
+
+        weekday_stats[p][0] += v.get("pazartesi", 0)
+        weekday_stats[p][1] += v.get("salı", 0)
+        weekday_stats[p][2] += v.get("çarşamba", 0)
+        weekday_stats[p][3] += v.get("perşembe", 0)
+        weekday_stats[p][4] += v.get("cuma", 0)
+        weekday_stats[p][5] += v.get("cumartesi", 0)
+        weekday_stats[p][6] += v.get("pazar", 0)
+
+        gecmis_katsayi_map[p] = round(kats, 2)
+
+    for p in totals:
+        gecmis_katsayi_map.setdefault(p, 0)
 
     for rec in GECMIS_BAYRAM:
         p = normalize_name(rec["eczane"])
@@ -861,7 +880,6 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
             last_dates[p] = d
 
     wb = Workbook()
-    gun = ["Pzt", "Salı", "Çarş", "Perş", "Cuma", "Ctesi", "Pazar"]
     header = ["Tarih", "Gün"] + list(groups.keys())
 
     for k in range(nm):
@@ -882,11 +900,11 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
             last_dates=last_dates,
             bayram_year_stats=bayram_year_stats,
             bayram_dates=bayram_dates,
-            arefe_dates=arefe_dates
+            arefe_dates=arefe_dates,
         )
 
         for d, p in sorted(sched.items()):
-            row = [d.strftime("%d.%m.%Y"), gun[d.weekday()]]
+            row = [d.strftime("%d.%m.%Y"), DAY_SHORT[d.weekday()]]
             for g in groups:
                 row.append(p.get(g, ""))
             ws.append(row)
@@ -903,27 +921,29 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
         "Toplam Nöbet",
         "Toplam Katsayı",
         "Bayram",
-        "Pzt", "Salı", "Çarş", "Perş", "Cuma", "Ctesi", "Pazar"
+        "Pzt", "Salı", "Çarş", "Perş", "Cuma", "Ctesi", "Pazar",
     ])
 
     eczane_grup = {normalize_name(p): g for g, plist in groups.items() for p in plist}
 
     for p in totals:
-        gecmis = GECMIS_YUK.get(p, {"bayram": 0, "haftasonu": 0, "normal": 0})
-
-        gecmis_katsayi = (
-            gecmis["bayram"] * 2 +
-            gecmis["haftasonu"] * 1.5 +
-            gecmis["normal"]
+        toplam_katsayi = (
+            weekday_stats[p][0] +
+            weekday_stats[p][1] +
+            weekday_stats[p][2] +
+            weekday_stats[p][3] +
+            weekday_stats[p][4] +
+            weekday_stats[p][5] * 1.5 +
+            weekday_stats[p][6] * 2
         )
 
         summary.append([
             p,
             eczane_grup.get(p, ""),
-            round(gecmis_katsayi, 2),
-            gecmis["bayram"],
+            gecmis_katsayi_map.get(p, 0),
+            GECMIS_YUK.get(p, {}).get("bayram", 0),
             counts[p],
-            round(totals[p], 2),
+            round(toplam_katsayi, 2),
             bayram_stats[p],
             weekday_stats[p][0],
             weekday_stats[p][1],
@@ -931,7 +951,7 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
             weekday_stats[p][3],
             weekday_stats[p][4],
             weekday_stats[p][5],
-            weekday_stats[p][6]
+            weekday_stats[p][6],
         ])
 
     for c in summary[1]:
@@ -940,7 +960,7 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
     if "Sheet" in wb.sheetnames:
         wb.remove(wb["Sheet"])
 
-    wb.save("Son.xlsx")
+    wb.save(output_name)
 
     wb2 = Workbook()
     ws2 = wb2.active
@@ -951,9 +971,14 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
         "Yıl",
         "Ay",
         "Bayram",
-        "Hafta Sonu",
-        "Normal",
-        "Arefe"
+        "Arefe",
+        "Pazartesi",
+        "Salı",
+        "Çarşamba",
+        "Perşembe",
+        "Cuma",
+        "Cumartesi",
+        "Pazar",
     ])
 
     for eczane in sorted(totals.keys()):
@@ -966,17 +991,23 @@ def main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=None):
                 yil,
                 ay,
                 veri["bayram"],
-                veri["haftasonu"],
-                veri["normal"],
-                veri["arefe"]
+                veri["arefe"],
+                veri["pazartesi"],
+                veri["salı"],
+                veri["çarşamba"],
+                veri["perşembe"],
+                veri["cuma"],
+                veri["cumartesi"],
+                veri["pazar"],
             ])
 
     for c in ws2[1]:
         c.font = Font(bold=True)
 
-    wb2.save("aylik_nobet_data.xlsx")
+    detail_name = "aylik_nobet_data.xlsx"
+    wb2.save(detail_name)
 
-    return "Son.xlsx", "aylik_nobet_data.xlsx"
+    return output_name, detail_name
 
 
 # =========================================================
@@ -990,7 +1021,7 @@ def run_schedule(
     gecmis_yuk_df,
     gecmis_bayram_df=None,
     eklenme_input=None,
-    cikma_input=None
+    cikma_input=None,
 ):
     global eklenme_tarihi
     global cikma_tarihi
@@ -1004,16 +1035,43 @@ def run_schedule(
 
     monthly_stats = defaultdict(lambda: defaultdict(lambda: {
         "bayram": 0,
-        "haftasonu": 0,
-        "normal": 0,
-        "arefe": 0
+        "arefe": 0,
+        "pazartesi": 0,
+        "salı": 0,
+        "çarşamba": 0,
+        "perşembe": 0,
+        "cuma": 0,
+        "cumartesi": 0,
+        "pazar": 0,
     }))
 
-    eklenme = {normalize_name(k): v for k, v in eklenme_input.items()}
+    eklenme = {
+        normalize_name(k): {
+            "grup": str(v["grup"]).upper().strip(),
+            "tarih": v["tarih"],
+        }
+        for k, v in eklenme_input.items()
+    }
     eklenme_tarihi = {normalize_name(k): v["tarih"] for k, v in eklenme_input.items()}
     cikma_tarihi = {normalize_name(k): v for k, v in cikma_input.items()}
 
     GECMIS_YUK = excelden_gecmis_yuk_df(gecmis_yuk_df)
     GECMIS_BAYRAM = excelden_gecmis_bayram_df(gecmis_bayram_df) if gecmis_bayram_df is not None else []
 
-    return main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM)
+    return main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM, output_name="Alternatif.xlsx")
+
+
+# =========================================================
+# MASAÜSTÜ / KONSOL ÇALIŞTIRMA
+# =========================================================
+
+if __name__ == "__main__":
+    GECMIS_YUK = excelden_gecmis_yuk("gecmis_nobet_erzurum.xlsx")
+
+    y = int(input("Yıl: "))
+    m = int(input("Başlangıç ayı: "))
+    nm = int(input("Kaç ay?: "))
+
+    output, detail = main(y, m, nm, GECMIS_YUK, GECMIS_BAYRAM=[])
+    print(f"✅ Plan hazır: {output}")
+    print(f"📊 Aylık detay hazır: {detail}")
